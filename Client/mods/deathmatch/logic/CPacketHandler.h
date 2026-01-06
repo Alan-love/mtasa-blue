@@ -5,16 +5,18 @@
  *  FILE:        mods/deathmatch/logic/CPacketHandler.h
  *  PURPOSE:     Header for packet handler class
  *
- *  Multi Theft Auto is available from http://www.multitheftauto.com/
+ *  Multi Theft Auto is available from https://www.multitheftauto.com/
  *
  *****************************************************************************/
 
 #pragma once
 
+#include <filesystem>
 #include <CClientCommon.h>
 
 class CClientEntity;
 class CCustomData;
+class CClientTextDisplay;
 
 class CPacketHandler
 {
@@ -41,7 +43,8 @@ class CPacketHandler
         BAN,
         KICK,
         CUSTOM,
-        SHUTDOWN
+        SHUTDOWN,
+        SERIAL_DUPLICATE
     };
 
     struct SEntityDependantStuff
@@ -100,7 +103,6 @@ public:
     void Packet_ChatClear(NetBitStreamInterface& bitStream);
     void Packet_ServerInfoSync(NetBitStreamInterface& bitStream);
     void Packet_PolygonHeight(NetBitStreamInterface& bitStream);
-    void Packet_ServerRPCControl(NetBitStreamInterface& bitStream);
 
     // For debugging protocol errors during ENTITY_ADD packet
     void    EntityAddDebugBegin(uint uiNumEntities, NetBitStreamInterface* pBitStream);
@@ -111,4 +113,6 @@ public:
     std::vector<int>       m_EntityAddReadOffsetStore;
     NetBitStreamInterface* m_pEntityAddBitStream;
     uint                   m_uiEntityAddNumEntities;
+
+    std::list<std::shared_ptr<CClientTextDisplay>> m_displayTextList;
 };
