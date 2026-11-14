@@ -12,6 +12,7 @@
 #include <StdInc.h>
 #include "CTileBatcher.h"
 #include "CMaterialLine3DBatcher.h"
+#include "DXHook/CProxyDirect3DDevice9.h"
 
 SMaterialLine3DItem* CMaterialLine3DBatcher::ms_pLines = NULL;
 
@@ -36,6 +37,12 @@ CMaterialLine3DBatcher::CMaterialLine3DBatcher(bool bPreGUI)
 ////////////////////////////////////////////////////////////////
 CMaterialLine3DBatcher::~CMaterialLine3DBatcher()
 {
+    for (SMaterialLine3DItem& item : m_LineList)
+    {
+        if (item.pMaterial)
+            item.pMaterial->Release();
+    }
+    m_LineList.clear();
 }
 
 ////////////////////////////////////////////////////////////////
@@ -121,7 +128,7 @@ void CMaterialLine3DBatcher::Flush()
     std::vector<uint> indexList;
     indexList.resize(uiNumLines);
     uint* pIndices = &indexList[0];
-    uint  uiNumIndicies = 0;
+    uint  uiNumIndices = 0;
 
     // Calculate distances
     for (uint i = 0; i < uiNumLines; i++)
@@ -142,12 +149,12 @@ void CMaterialLine3DBatcher::Flush()
                 continue;
         }
         // Add the index for this line to the draw list
-        pIndices[uiNumIndicies++] = i;
+        pIndices[uiNumIndices++] = i;
     }
 
-    if (uiNumIndicies > 0)
+    if (uiNumIndices > 0)
     {
-        indexList.resize(uiNumIndicies);
+        indexList.resize(uiNumIndices);
 
         // Sort index list by distance
         ms_pLines = &m_LineList[0];
@@ -157,12 +164,12 @@ void CMaterialLine3DBatcher::Flush()
 
         // Draw index list, batching by material
         uint uiBatchFirstIndex = 0;
-        for (uint i = 0; i < uiNumIndicies; i++)
+        for (uint i = 0; i < uiNumIndices; i++)
         {
             const SMaterialLine3DItem& item = ms_pLines[pIndices[i]];
 
             // Flush batch if this is the last index, or the next one uses a different material
-            if ((i == uiNumIndicies - 1) || item.pMaterial != ms_pLines[pIndices[i + 1]].pMaterial)
+            if ((i == uiNumIndices - 1) || item.pMaterial != ms_pLines[pIndices[i + 1]].pMaterial)
             {
                 uint* pBatchIndices = &pIndices[uiBatchFirstIndex];
                 uint  uiNumBatchLines = i - uiBatchFirstIndex + 1;
@@ -203,14 +210,7 @@ void CMaterialLine3DBatcher::DrawBatch(const CVector& vecCameraPos, uint* pBatch
     {
         const SMaterialLine3DItem& item = m_LineList[pBatchIndices[i]];
 
-        SColor color = item.ulColor;
-        if (m_bPreGUI)
-        {
-            color.R /= 2;
-            color.G /= 2;
-            color.B /= 2;
-        }
-        const ulong    ulColor = color;
+        const ulong    ulColor = item.ulColor;
         const CVector& vecA = item.vecFrom;
         const CVector& vecB = item.vecTo;
 
@@ -235,13 +235,26 @@ void CMaterialLine3DBatcher::DrawBatch(const CVector& vecCameraPos, uint* pBatch
         const CVector vecA1 = item.vecFrom - vecShift;
         const CVector vecB1 = item.vecTo - vecShift;
 
-        WRITE_PDT_VERTEX(pBuffer, vecA1.fX, vecA1.fY, vecA1.fZ, ulColor, item.fU1, item.fV1);
-        WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU2, item.fV1);
-        WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU1, item.fV2);
+        if (item.bFlipUV)
+        {
+            WRITE_PDT_VERTEX(pBuffer, vecA1.fX, vecA1.fY, vecA1.fZ, ulColor, item.fU1, item.fV2);
+            WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU1, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU2, item.fV2);
 
-        WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU2, item.fV1);
-        WRITE_PDT_VERTEX(pBuffer, vecB2.fX, vecB2.fY, vecB2.fZ, ulColor, item.fU2, item.fV2);
-        WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU1, item.fV2);
+            WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU1, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecB2.fX, vecB2.fY, vecB2.fZ, ulColor, item.fU2, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU2, item.fV2);
+        }
+        else
+        {
+            WRITE_PDT_VERTEX(pBuffer, vecA1.fX, vecA1.fY, vecA1.fZ, ulColor, item.fU1, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU2, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU1, item.fV2);
+
+            WRITE_PDT_VERTEX(pBuffer, vecA2.fX, vecA2.fY, vecA2.fZ, ulColor, item.fU2, item.fV1);
+            WRITE_PDT_VERTEX(pBuffer, vecB2.fX, vecB2.fY, vecB2.fZ, ulColor, item.fU2, item.fV2);
+            WRITE_PDT_VERTEX(pBuffer, vecB1.fX, vecB1.fY, vecB1.fZ, ulColor, item.fU1, item.fV2);
+        }
     }
 
     // Set vertex stream
@@ -265,8 +278,22 @@ void CMaterialLine3DBatcher::DrawBatch(const CVector& vecCameraPos, uint* pBatch
     if (CTextureItem* pTextureItem = DynamicCast<CTextureItem>(pMaterial))
     {
         // Draw using texture
-        m_pDevice->SetTexture(0, pTextureItem->m_pD3DTexture);
-        m_pDevice->DrawPrimitiveUP(D3DPT_TRIANGLELIST, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+        bool bDrawTexture = true;
+        if (CRenderTargetItem* pRenderTarget = DynamicCast<CRenderTargetItem>(pTextureItem))
+        {
+            if (!pRenderTarget->TryEnsureValid())
+                bDrawTexture = false;
+        }
+        else if (CScreenSourceItem* pScreenSource = DynamicCast<CScreenSourceItem>(pTextureItem))
+        {
+            if (!pScreenSource->TryEnsureValid())
+                bDrawTexture = false;
+        }
+        if (bDrawTexture && pTextureItem->m_pD3DTexture)
+        {
+            m_pDevice->SetTexture(0, pTextureItem->m_pD3DTexture);
+            m_pDevice->DrawPrimitiveUP(D3DPT_TRIANGLELIST, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+        }
     }
     else if (CShaderInstance* pShaderInstance = DynamicCast<CShaderInstance>(pMaterial))
     {
@@ -281,7 +308,7 @@ void CMaterialLine3DBatcher::DrawBatch(const CVector& vecCameraPos, uint* pBatch
         pShaderInstance->m_pEffectWrap->ApplyMappedHandles();
 
         // Do shader passes
-        DWORD dwFlags = D3DXFX_DONOTSAVESHADERSTATE;            // D3DXFX_DONOTSAVE(SHADER|SAMPLER)STATE
+        DWORD dwFlags = D3DXFX_DONOTSAVESHADERSTATE;  // D3DXFX_DONOTSAVE(SHADER|SAMPLER)STATE
         uint  uiNumPasses = 0;
         pShaderInstance->m_pEffectWrap->Begin(&uiNumPasses, dwFlags);
 
@@ -310,7 +337,7 @@ void CMaterialLine3DBatcher::DrawBatch(const CVector& vecCameraPos, uint* pBatch
 //
 ////////////////////////////////////////////////////////////////
 void CMaterialLine3DBatcher::AddLine3D(const CVector& vecFrom, const CVector& vecTo, float fWidth, ulong ulColor, CMaterialItem* pMaterial, float fU, float fV,
-                                       float fSizeU, float fSizeV, bool bRelativeUV, bool bUseFaceToward, const CVector& vecFaceToward)
+                                       float fSizeU, float fSizeV, bool bRelativeUV, bool bFlipUV, bool bUseFaceToward, const CVector& vecFaceToward)
 {
     if (!pMaterial)
         return;
@@ -330,6 +357,7 @@ void CMaterialLine3DBatcher::AddLine3D(const CVector& vecFrom, const CVector& ve
     item.fV1 = fV;
     item.fU2 = fU + fSizeU;
     item.fV2 = fV + fSizeV;
+    item.bFlipUV = bFlipUV;
     if (!bRelativeUV)
     {
         // If UV's are absolute pixels, then scale the range to 0.0f - 1.0f.
